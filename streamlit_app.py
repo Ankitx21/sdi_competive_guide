@@ -14,7 +14,8 @@ CHAT_MODEL = "gemini-2.5-flash"
 INDEX_FILE = "doc_index.npz"
 TOP_K = 5
 MIN_SIM = 0.45
-MEMORY_TURNS = 0.65
+MEMORY_TURNS = 3
+MEMORY_RETRIEVAL_WEIGHT = 0.65
 
 
 def retry_wait_seconds(err_text: str, default_wait=20):
@@ -76,6 +77,35 @@ def retrieve(query, embeddings, texts, pages, sources, embed_model, top_k=TOP_K)
             }
         )
     return hits
+
+
+def merge_hits(primary_hits, secondary_hits, top_k=TOP_K, secondary_weight=MEMORY_RETRIEVAL_WEIGHT):
+    merged = {}
+
+    for h in primary_hits:
+        key = (h["source"], h["page"], h["text"])
+        merged[key] = {
+            "score": h["score"],
+            "text": h["text"],
+            "page": h["page"],
+            "source": h["source"],
+        }
+
+    for h in secondary_hits:
+        key = (h["source"], h["page"], h["text"])
+        weighted = h["score"] * secondary_weight
+        if key in merged:
+            merged[key]["score"] = max(merged[key]["score"], weighted)
+        else:
+            merged[key] = {
+                "score": weighted,
+                "text": h["text"],
+                "page": h["page"],
+                "source": h["source"],
+            }
+
+    ranked = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
+    return ranked[:top_k]
 
 
 def build_history_text(messages, max_turns=MEMORY_TURNS):
@@ -232,16 +262,28 @@ p, li, label, span, div, h1, h2, h3, h4, h5, h6 {
 
         with st.chat_message("assistant"):
             with st.spinner("Searching documents..."):
+                # Primary retrieval always uses the user's exact query.
+                primary_hits = retrieve(
+                    query,
+                    embeddings,
+                    texts,
+                    pages,
+                    sources,
+                    embed_model,
+                    top_k=TOP_K * 2,
+                )
+                # Secondary retrieval uses short memory for reference resolution.
                 retrieval_query = build_retrieval_query(query, st.session_state.messages)
-                hits = retrieve(
+                secondary_hits = retrieve(
                     retrieval_query,
                     embeddings,
                     texts,
                     pages,
                     sources,
                     embed_model,
-                    top_k=TOP_K,
+                    top_k=TOP_K * 2,
                 )
+                hits = merge_hits(primary_hits, secondary_hits, top_k=TOP_K)
                 history_text = build_history_text(st.session_state.messages)
                 answer = answer_from_docs(
                     query,
