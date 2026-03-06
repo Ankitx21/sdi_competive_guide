@@ -14,7 +14,7 @@ CHAT_MODEL = "gemini-2.5-flash"
 INDEX_FILE = "doc_index.npz"
 TOP_K = 5
 MIN_SIM = 0.45
-MEMORY_TURNS = 3
+MEMORY_TURNS = 0.65
 
 
 def retry_wait_seconds(err_text: str, default_wait=20):
